@@ -12,6 +12,16 @@ from typing import Union
 from typing import Literal
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+def set_seed(seed):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed) 
+    torch.backends.cudnn.badatahmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.enabled = False
 def equation(x,eps,n,k):
     return eps-eps*x**(k+1)-eps*x**(n-k)-1+x+eps*x
 
@@ -71,7 +81,7 @@ class cpDistiller_Model(object):
                  category: int = 10,
                  gmvae_t: int = 1,
                  hard: int = 0,
-                 pic_dim: int=144,
+                 pic_dim: int=11664,
                  eps: float = 1e-8,
                  name: str = 'result',
                  margin: int = 10,
@@ -80,7 +90,10 @@ class cpDistiller_Model(object):
                  alpha: float = 0.75,
                  alp: list = [35,35],
                  print_step: int = 5,
-                 mo: Literal['CellProfiler','Extractor'] = 'CellProfiler'):
+                 use_mean: bool =True,
+                 ema_alpha:float = 0.9,
+                 seta: int = 1,
+                 mo: Literal['cpDistiller-B','cpDistiller-C'] = 'cpDistiller-B'):
         """
         The main function of cpDistiller_Model is used for initializing the model.
         
@@ -152,8 +165,8 @@ class cpDistiller_Model(object):
         give_mean: bool 
             Give mean of distribution or sample from it. Defaults to False
         
-        mo: Literal['CellProfiler','Extractor']
-            Model mode selection: if set to 'CellProfiler', only CellProfiler-based features are used; if set to 'Extractor', cpDistiller-based features and CellProfiler-based features are used for training, defaule 'CellProfiler'.
+        mo: Literal['cpDistiller-B','cpDistiller-C']
+            If set to 'cpDistiller-C', only CellProfiler-based features are used. If set to 'cpDistiller-B' (default), both CellProfiler-based features and cpDistiller-extractor-based features are used for training. Alternatively, you can set the 'mo' to 'cpDistiller-C' but provide only cpDistiller-extractor-based features as input, effectively using a variant that does not rely on CellProfiler features (cpDistiller-D).
             
         """
         self.dataset = dataset
@@ -161,7 +174,8 @@ class cpDistiller_Model(object):
         self.out_path = model_path
         self.lr = lr
         self.category = category
-        self.ema_alpha = 1-5/self.epochs
+        # self.ema_alpha = 1-5/self.epochs
+        self.ema_alpha = ema_alpha
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         if gpu_id is not None:
             self.device = torch.device("cuda:{}".format(gpu_id))
@@ -176,6 +190,8 @@ class cpDistiller_Model(object):
         self.alp = alp
         self.print_step = print_step
         self.mod = self.dataset.mod
+        self.seed = seed
+        self.use_mean = use_mean
        
         random.seed(seed)
         os.environ['PYTHONHASHSEED'] = str(seed)
@@ -193,12 +209,17 @@ class cpDistiller_Model(object):
         self.triple_loss = nn.TripletMarginWithDistanceLoss(distance_function=nn.PairwiseDistance(), margin=margin,reduction=self.reduction)
         self.LabelSmoothing = LabelSmoothingCrossEntropy(reduction=self.reduction).to(self.device)
         mse_loss = nn.MSELoss(reduction='none').to(device=self.device)
-        self.elbo_loss = ELBOLoss(mse_loss,eps,reduction=reduction).to(device=self.device)
-        if mo == 'CellProfiler':
-            self.model = GMVAE(dataset.data.X.shape[1],dim_hidden,dim_out,category).to(
+        self.elbo_loss = ELBOLoss(mse_loss,seta,eps,reduction=reduction).to(device=self.device)
+
+       
+
+        if mo == 'cpDistiller-C':  #  Alternatively, you can set the 'mo' to 'cpDistiller-C' but provide only cpDistiller-extractor-based features as input, effectively using a variant that does not rely on CellProfiler features (cpDistiller-D).
+            self.input_dim = dataset.data.X.shape[1] 
+            self.model = GMVAE(self.input_dim,dim_hidden,dim_out,category).to(
                     device=self.device)
-        elif "Extractor":
-            self.model = GMVAE_DL(dataset.data.X.shape[1],dim_hidden,dim_out,category,pic_dim).to(
+        elif "cpDistiller-B":
+            self.input_dim = dataset.data.X.shape[1] - pic_dim + int((int(math.sqrt(pic_dim))-9)/9+1)*int((int(math.sqrt(pic_dim))-9)/9+1)
+            self.model = GMVAE_DL(self.input_dim,dim_hidden,dim_out,category,pic_dim).to(
                     device=self.device)
 
         self.loss_total = None
@@ -250,13 +271,13 @@ class cpDistiller_Model(object):
             {'params': self.D_row.parameters(),'lr':self.lr[1]},
             {'params': self.D_col.parameters(),'lr':self.lr[1]},
             {'params':self.D_batch.parameters(),'lr':self.lr[1]},
-             ], lr=self.lr[0])
+             ])
         else:
             self.optimizer = torch.optim.AdamW([
                 {'params': self.model.parameters(),'lr':self.lr[0]},
                 {'params': self.D_row.parameters(),'lr':self.lr[1]},
                 {'params': self.D_col.parameters(),'lr':self.lr[1]},
-            ], lr=self.lr[0])
+            ])
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.epochs)
         
 
@@ -332,9 +353,10 @@ class cpDistiller_Model(object):
                     drow = self.D_row(x)
                     dcol = self.D_col(x)
                 
-                    loss_triple = anchor.shape[1]/ self.alp[1]*self.triple_loss(out_info['project_head'],out_info_p['project_head'],out_info_n['project_head'])
-                    loss_d =anchor.shape[1]/self.alp[0]*(self.LabelSmoothing(drow, row,row_smooth) + self.LabelSmoothing(dcol, col,col_smooth))
-                    loss_elbo = self.elbo_loss(out_info['x_rec'],anchor,out_info['gaussian'], out_info['mu'], out_info['var'], out_info['y_mu'], out_info['y_var'],out_info['logits'], out_info['prob'])
+                    loss_triple = self.input_dim/ self.alp[1]*self.triple_loss(out_info['project_head'],out_info_p['project_head'],out_info_n['project_head'])
+                   
+                    loss_d =self.input_dim/self.alp[0]*(self.LabelSmoothing(drow, row,row_smooth) + self.LabelSmoothing(dcol, col,col_smooth))
+                    loss_elbo = self.elbo_loss(out_info['x_rec'],out_info['X'],out_info['gaussian'], out_info['mu'], out_info['var'], out_info['y_mu'], out_info['y_var'],out_info['logits'], out_info['prob'])
                     self.loss_total =   loss_elbo  + loss_triple + loss_d
 
                     max_category = list(torch.max(out_info['category'],1)[1].cpu().data.numpy())
@@ -401,10 +423,10 @@ class cpDistiller_Model(object):
                     dcol = self.D_col(x)
                     dbatch = self.D_batch(x)
                 
-                    loss_triple =  anchor.shape[1]/self.alp[0]*self.triple_loss(out_info['project_head'],out_info_p['project_head'],out_info_n['project_head'])
-                    loss_d =anchor.shape[1]/self.alp[1]*(self.LabelSmoothing(dbatch,batch,batch_smooth) + self.LabelSmoothing(drow, row,row_smooth) + self.LabelSmoothing(dcol, col,col_smooth))
+                    loss_triple =  self.input_dim/self.alp[0]*self.triple_loss(out_info['project_head'],out_info_p['project_head'],out_info_n['project_head'])
+                    loss_d = self.input_dim/self.alp[1]*(self.LabelSmoothing(dbatch,batch,batch_smooth) + self.LabelSmoothing(drow, row,row_smooth) + self.LabelSmoothing(dcol, col,col_smooth))
                 
-                    loss_elbo = self.elbo_loss(out_info['x_rec'],anchor,out_info['gaussian'], out_info['mu'], out_info['var'], out_info['y_mu'], out_info['y_var'],out_info['logits'], out_info['prob'])
+                    loss_elbo = self.elbo_loss(out_info['x_rec'],out_info['X'],out_info['gaussian'], out_info['mu'], out_info['var'], out_info['y_mu'], out_info['y_var'],out_info['logits'], out_info['prob'])
                     self.loss_total =   loss_elbo  + loss_triple + loss_d
                     max_category = list(torch.max(out_info['category'],1)[1].cpu().data.numpy())
                     for i in range(self.category):
@@ -439,7 +461,7 @@ class cpDistiller_Model(object):
         torch.save(self.model.state_dict(), os.path.join(self.out_path,'final_model_ema.ckpt'))
         self.ema.restore()
 
-    def eval(self, data,batch_size: int = 256):
+    def eval(self, data, batch_size: int = 256):
         """
         The function used to eval.
 
@@ -449,6 +471,7 @@ class cpDistiller_Model(object):
             Batch size during evaling, default 256.
 
         """
+        set_seed(self.seed)
         self.model.eval()
         self.D_row.eval()
         self.D_col.eval()
@@ -460,8 +483,10 @@ class cpDistiller_Model(object):
             X = Variable(torch.FloatTensor(x).to(device=self.device))
             with torch.no_grad():
                 output = self.model(X,self.gmvae_t,self.hard)
-                output_x = output['gaussian'] 
-            
+                if self.use_mean:
+                    output_x = output['mu'] 
+                else:
+                    output_x = output['gaussian'] 
                 output_c = torch.max(output['category'],1)[1]
             if result_X is None:
                 result_X = output_x.cpu().data.numpy()

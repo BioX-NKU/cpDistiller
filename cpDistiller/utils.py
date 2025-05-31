@@ -9,6 +9,8 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import itertools
 import logging
+from scipy.stats import median_abs_deviation
+import anndata
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
@@ -48,33 +50,6 @@ def fill_missing_combinations(csv_file_path: str):
     # Save the sorted DataFrame to a CSV if needed
     sorted_df.to_csv(csv_file_path, index=False)
 
-# def get_data_path(batchname:str,
-#                   image_or_illum:str,
-#                   BRR:str,
-#                   file_name:str):
-#     """
-#     Constructs a full path to a data file based on provided parameters.
-
-#     Parameters
-#     ----------
-#     batchname:  str
-#         The batch name which is part of the directory structure.
-
-#     image_or_illum: str
-#         Subdirectory indicating type of data ('image' or 'illum').
-
-#     BRR:   str 
-#         Subdirectory name, generally a unique identifier.
-
-#     file_name:  str
-#         The name of the file including its extension.
-
-#     Returns:    str 
-#         The full path concatenated from the given components.
-#     """
-#     data_path = '/data/pub/cell/images'
-#     path = data_path + os.path.sep + batchname + os.path.sep + image_or_illum + os.path.sep + BRR + os.path.sep + file_name
-#     return path
 
 
 def replace_s3_path_cpg0000(original_path: str, 
@@ -223,6 +198,7 @@ def tiff_multiple_illum(tiff_path: str,
     if(if_no_multi):
         return array
     return array * ill
+
 def merge_three(dna_array,
                 rna_array,
                 er_array):
@@ -243,41 +219,6 @@ def merge_three(dna_array,
     """
     return np.dstack((dna_array, (rna_array + er_array) / 2))
 
-def scale_batch(data,
-                key: str = 'batch'):
-    """
-    batch-wise normalization
-    
-    Parameters
-    ----------
-    data: Anndata
-        Jump data is used for batch-wise normalization.
-        
-    key: str
-        Seed value for random number generation, default 'batch'.
-
-    Returns
-    ----------
-    adata: Anndata
-        The data after batch-wise normalization.
-            
-    """
-    batches = list(set(data.obs[key]))
-    obs = data.obs_names
-    scaled_adata = None
-    for batch in batches:
-        batch_adata = data[data.obs[key] == batch, :]
-        data_matrix = batch_adata.X
-        scaler = StandardScaler()
-        scaled_data_matrix = scaler.fit_transform(data_matrix)
-        batch_adata_scaled = sc.AnnData(X=scaled_data_matrix, obs=batch_adata.obs, var=batch_adata.var)
-        if scaled_adata is None:
-            scaled_adata = batch_adata_scaled
-        else:
-            scaled_adata = ad.concat([scaled_adata, batch_adata_scaled], join='outer', index_unique=None)
-    adata = scaled_adata
-    adata = adata[obs]
-    return adata
 def add_zero(attribute):
     if len(str(attribute)) == 1:
         return '0' + str(attribute)
@@ -348,7 +289,7 @@ def merge_csv2h5ad(data_source,
     all_categories_df = pd.DataFrame({'key': key})
     merged_df = pd.merge(all_categories_df, data, on='key', how='left').fillna(0)
     merged_df = merged_df.drop_duplicates(subset='key')
-    columns_to_keep = [col for col in merged_df.columns if col not in  ['key','batch', 'Column_Label', 'BR_Code','Row_Label']]
+    columns_to_keep = [col for col in merged_df.columns if col not in  ['key','batch', 'Column_Label', 'BR_Code','Row_Label','Batch']]
     merged_df = merged_df[columns_to_keep]
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(merged_df.values)
@@ -385,3 +326,26 @@ def find_lose(source_folder='/data/pub/cell/'):
                 print(f"Error reading {file}: {e}")
     print("Row count check complete.")
 
+def MAD(adata):
+    scaled_adata = None
+    obs = adata.obs_names
+    for plate in list(set(adata.obs['Metadata_Plate'])):
+        plate_adata = adata[adata.obs['Metadata_Plate'] == plate]
+        neg_adata = plate_adata[plate_adata.obs['control']=='negative']
+        data_matrix = pd.DataFrame(plate_adata.X) 
+        if neg_adata.shape[0]==0:
+            neg_adata = plate_adata
+        median = pd.DataFrame(neg_adata.X).median()
+        mad = pd.Series(
+            median_abs_deviation(neg_adata.X, nan_policy="omit", scale=1 / 1.4826),
+            index= median.index,
+        )
+        res = (data_matrix-median)/(mad+1e-18)
+        batch_adata_scaled = sc.AnnData(X=res.values, obs=plate_adata.obs, var=plate_adata.var)
+        sc.pp.scale(batch_adata_scaled)
+        if scaled_adata is None:
+            scaled_adata = batch_adata_scaled
+        else:
+            scaled_adata = anndata.concat([scaled_adata, batch_adata_scaled], axis=0, join='outer', merge='same')
+    scale_adata =scaled_adata[obs]
+    return scale_adata

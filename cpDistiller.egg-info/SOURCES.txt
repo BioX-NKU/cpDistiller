@@ -1,0 +1,17 @@
+LICENSE-MIT
+LICENSE-MODIFIED-APACHE-2.0
+README.md
+setup.py
+cpDistiller/__init__.py
+cpDistiller/dataset.py
+cpDistiller/labeled_data.py
+cpDistiller/losses.py
+cpDistiller/main.py
+cpDistiller/model.py
+cpDistiller/prepare_union.py
+cpDistiller/utils.py
+cpDistiller.egg-info/PKG-INFO
+cpDistiller.egg-info/SOURCES.txt
+cpDistiller.egg-info/dependency_links.txt
+cpDistiller.egg-info/not-zip-safe
+cpDistiller.egg-info/top_level.txt

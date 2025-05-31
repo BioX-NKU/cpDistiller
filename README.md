@@ -30,20 +30,24 @@ conda activate cpDistiller
 
 ### Step3
 
-Download the environment packages required for the pre-trained model.
-
-```bash
-cd deepcell_release
-python setup.py install
-pip install deepcell_toolbox==0.12.1
-```
-### Step4
-
 You can install cpDistiller by the following command:
 
 ```bash
 cd ..
 pip install -e .
+```
+
+### Step4
+
+Download the environment packages required for the pre-trained model (Optional). You can also install the required dependencies for the pre-trained model by following [https://github.com/vanvalenlab/intro-to-deepcell].
+
+```bash
+cd deepcell_release
+pip install tensorflow==2.8.1
+pip install tensorflow_addons==0.16.1
+pip install spektral==1.0.4
+python setup.py install
+pip install deepcell_toolbox==0.12.1
 ```
 
 Our experimental environment includes two 24GB Nvidia 4090 graphics cards and 96 Intel(R) Xeon(R) Gold 783 5318N CPUs @ 2.10GHz. Completing all the preceding steps will approximately take 30 to 40 minutes, depending on the user's computer specifications and internet connection speed.
@@ -61,7 +65,7 @@ aws s3 cp --no-sign-reques s3://cellpainting-gallery/cpg0016-jump/source_4/image
 aws s3 cp --no-sign-request s3://cellpainting-gallery/cpg0016-jump/source_4/workspace/backend/ /data/pub/cell/cpg0016_source4/backend --recursive --exclude "*.sqlite"
 ```
 
-### 2. Feature extraction with cpDistiller
+### 2.1 Feature extraction with cpDistiller
 You should process the Cell Painting images and save them in numpy (npz) format using `cpDistiller.prepare_union.tiff2npz`.  You can then use the extractor module of cpDistiller to obtain representations from Cell Painting images (cpDistiller-extractor-based features) with `cpDistiller.prepare_union.npz2embedding`. It takes approximately 11 hours to obtain representations from Cell Painting images for each plate.
 
 You can utilize the following parameters to customize the processing pathway for extracting representations from Cell Painting images.
@@ -74,6 +78,22 @@ You can utilize the following parameters to customize the processing pathway for
 | output_path  | the path for saving representations      |
 
 More details could be found in [#feature extraction](https://cpdistiller.readthedocs.io/en/latest/Tutorial/index.html#feature-extraction-with-cpdistiller). 
+
+### 2.2 Data source of cpDistiller-extractor-based features
+As a complement to the extraction procedure described above, the pre-extracted cpDistiller-extractor-based features are also available for direct access via the following link:
+[Batch1](https://drive.google.com/file/d/1HCs8UcOaUoB3z7GTM7_KeUAlDIej0YWa/view?usp=sharing),
+[Batch2](https://drive.google.com/file/d/1brAGu3IfkttxuIRBqD-3BiMC4FJ-lmrE/view?usp=sharing),
+[Batch3](https://drive.google.com/file/d/1JwpfwmuXyuks3dXKbDLj15YY_UKNDk-F/view?usp=sharing),
+[Batch4](https://drive.google.com/file/d/1buvQGhU1hTu6k12k4lWW9JoJpu-z-HCR/view?usp=sharing),
+[Batch5](https://drive.google.com/file/d/1suR-OSWAR7UD-w1PO43omm4moSqMXpcw/view?usp=sharing),
+[Batch6](https://drive.google.com/file/d/1P9AsowrdVHJT8P6kMQjwXbR2EUyZQlId/view?usp=sharing),
+[Batch7](https://drive.google.com/file/d/11EbsH2l9dq-O7IgBLsFVKzMEsfwpz2Ig/view?usp=sharing),
+[Batch8](https://drive.google.com/file/d/1SWVhi2rI968WEU0v38aOrydZfF-mFKSy/view?usp=sharing),
+[Batch9](https://drive.google.com/file/d/1SoyuRmU0O2Htu8HGyhOgz7OLgKv6_vgZ/view?usp=sharing),
+[Batch10](https://drive.google.com/file/d/1PcopZwWw6fJVry5gY9SwpLDG7zzu04eA/view?usp=sharing),
+[Batch11](https://drive.google.com/file/d/1QvfZZ2xu-12hSN062trvvxCVTikzX14m/view?usp=sharing),
+[Batch13](https://drive.google.com/file/d/1uzAt8-B9xc9rxohofrYW9ske2pArYvJa/view?usp=sharing),
+
 
 ### 3. Data preprocessing
 * Before data preprocessing, you should load **feature matrix** of Cell Painting images, utilizing both CellProfiler software and the extractor module of cpDistiller. 
@@ -91,12 +111,12 @@ More details could be found in [#feature extraction](https://cpdistiller.readthe
     ```python
     data = cpDistiller.utils.merge_csv2h5ad(data_source,adata)
     ```
-* For data preprocessing, you could use `scanpy.pp.scale` for single batch or `cpDistiller.utils.scale_batch` for multiple batches.
+* For data preprocessing, you could use `MAD` and `scanpy.pp.scale` for normalization.
     ```python
-    data = scanpy.pp.scale(data)   
+    data = MAD(data)   
     ```
     ```python
-    data = cpDistiller.utils.scale_batch(data)   
+    data = scanpy.pp.scale(data)   
     ```
 
     The [**scanpy**](https://scanpy.readthedocs.io/en/stable/), a widely-used Python library for single-cell data analysis, offers exceptional support for preprocessing Anndata objects.
@@ -109,7 +129,7 @@ More details could be found in [#feature extraction](https://cpdistiller.readthe
 
     ```python
     dat = DataSet(data,batch_size,mod)
-    labeled(data,Mnn,Knn,technic_name_list)
+    labeled(data,Mnn,Knn,Mnn_list,Knn_list)
     cpDistiller =  cpDistiller.main.cpDistiller_Model(dat)
     cpDistiller.train()  
     ```
@@ -120,7 +140,8 @@ More details could be found in [#feature extraction](https://cpdistiller.readthe
     | mod              | 0 for correcting well position effects and 1 for correcting triple effects, default 0                            |
     | Mnn              | the number of nearest neighbors considered when calculating MNN, default 5                                       |
     | Knn              | the number of nearest neighbors considered when calculating KNN, default 10                                      |
-    | technic_name_list| the list of technic effect labels to be considered when calculating triplets, default ['row','col']              |
+    | Mnn_list         | the list of technic effect labels to be considered to identify MNNs, default ['row','col']                       |
+    | Knn_list         | the list of technic effect labels to be considered to identify KNNs, default ['row','col']                       |
 
     It takes approximately 1 hour to correct triple effects for about 10w perturbations, depending on the user's computer specifications.
 

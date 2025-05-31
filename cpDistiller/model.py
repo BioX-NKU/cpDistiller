@@ -55,13 +55,17 @@ class Gaussian(nn.Module):
     var = self.var(x)
     std = torch.sqrt(var+1e-10) 
     normal = torch.randn_like(std)
-    z = mu + normal* std
+    if self.training:
+        z = mu + normal* std
+    else:
+        z = mu + std
     return mu, var, z 
 
 class GM_Encoder(nn.Module):
     def __init__(self, input_dim,hidden_dim, z_dim,category_num):
         super(GM_Encoder, self).__init__()
          # q(category|x)
+
         self.qy_x = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.LeakyReLU(),
@@ -154,13 +158,14 @@ class GMVAE(nn.Module):
         self.decode = GM_Decoder(input_dim,hidden_dim,out_dim,category_num)
         
     def forward(self, x,temperature=1.0, hard=0):
-        
+        input_x = x
         encode_dict = self.encode(x, temperature, hard)
         z, y = encode_dict['gaussian'], encode_dict['category']
         decode_dict = self.decode(z, y)
         output = encode_dict
         for key, value in decode_dict.items():
             output[key] = value
+        output['X']= input_x
         return output
       
 def reshape_vector_to_matrix(vector, n):
@@ -193,24 +198,24 @@ class PCAAttentionBlock(nn.Module):
     def __init__(self,input_dim=11664,output_dim=32,attetion=EfficientAttention(c=1)):
         super(PCAAttentionBlock, self).__init__()
         self.attention = attetion
-        self.pca = PCA(n_components=output_dim) 
+        self.pca_linear = nn.Linear(input_dim,output_dim)
         self.attetion_linear = nn.Linear(input_dim, output_dim)
-        self.attention_activation = nn.ReLU()
+       
+        self.attention_activation = nn.LeakyReLU()
         self.output_linear = nn.Linear(output_dim,input_dim)
-        self.output_activation = nn.ReLU()
+        self.output_activation = nn.LeakyReLU()
+        
 
 
     def forward(self, x):
-        
-        pca_x = self.pca.fit_transform(x.cpu().numpy())
-        pca_x_torch = torch.from_numpy(pca_x).float().to(x.device)
+        pca_x = self.pca_linear(x)
         reshaped_matrix_example = reshape_vector_to_matrix(x, x.shape[0])
         attetion_x = self.attention(reshaped_matrix_example) 
         attetion_x = attetion_x.reshape(x.shape[0], -1) 
         attetion_x = self.attetion_linear(attetion_x)
         attetion_x = self.attention_activation(attetion_x).to(x.device)
-        output = attetion_x + pca_x_torch 
-        out_put = self.output_activation(self.output_linear(output))
+        output = attetion_x + pca_x 
+        out_put = self.output_linear(self.output_activation(output))
         return out_put
         
 class GMVAE_DL(nn.Module):
@@ -218,24 +223,29 @@ class GMVAE_DL(nn.Module):
     def __init__(self, input_dim, hidden_dim,out_dim,category_num,pic_dim):
         super(GMVAE_DL, self).__init__()
         self.pic_dim = pic_dim
-        self.pca_attention = PCAAttentionBlock(input_dim=pic_dim,attetion=EfficientAttention(c=1))
+        num = 9
+        dim = int((int(math.sqrt(pic_dim))-num)/num+1)*int((int(math.sqrt(pic_dim))-num)/num+1)
+        
+        self.pca_attention = PCAAttentionBlock(input_dim=dim,attetion=EfficientAttention(c=1))
         self.encode = GM_Encoder(input_dim,hidden_dim,out_dim,category_num)
         self.decode = GM_Decoder(input_dim,hidden_dim,out_dim,category_num)
+        self.max_pooling = nn.MaxPool2d(num,num)
         
     def forward(self, x, temperature=1.0, hard=0):
         x_dl = x[:,-self.pic_dim:]
-        if x.shape[0] >= 32:
-            x_dl_attetionpca = self.pca_attention(x_dl)
-        else:
-            x_dl_attetionpca = x_dl
+        x_dl = self.max_pooling(x_dl.reshape(x_dl.shape[0], 1, int(math.sqrt(x_dl.shape[1])), int(math.sqrt(x_dl.shape[1])) ))
+        x_dl = x_dl.reshape(x_dl.shape[0], -1) 
+        x_dl_attetionpca = self.pca_attention(x_dl)
+       
         x = x[:,:-self.pic_dim]
-        x = torch.cat((x, x_dl_attetionpca), dim=1)  
+        x = torch.cat((x, x_dl_attetionpca), dim=1) 
+        input_x =x 
         encode_dict = self.encode(x, temperature, hard)
         z, y = encode_dict['gaussian'], encode_dict['category']
         decode_dict = self.decode(z, y)
         output = encode_dict
         for key, value in decode_dict.items():
             output[key] = value
-            
+        output['X']=input_x 
         return output
       

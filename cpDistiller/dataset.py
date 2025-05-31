@@ -13,7 +13,9 @@ class DataSet(object):
     def __init__(self,  data, 
                         seed: int=42,
                         batch_size: int=256,
-                        mod: Literal[1,0]=0): 
+                        mod: Literal[1,0]=0,
+                        p: float=0.5
+                        ): 
         """
         Data handling interface for providing data for model training and testing.
         
@@ -30,11 +32,14 @@ class DataSet(object):
         
         mod: Literal[1,0]
             The 'mod' variable must be either 0 or 1, where 0 represents correct row and column effects, and 1 represents correct triple effects.
-
+        
+        p: float=0.5
+            Proportion of samples drawn from MNN-based neighbors versus KNN-based neighbors. A value of p = 0.5 indicates an equal balance between MNN and KNN sampling.
             
         """
 
         super(DataSet, self).__init__()
+        self.p = p
         self.batch_size = batch_size
         self.mod = mod
         assert mod==0 or mod==1, f"The 'mod' variable must be either 0 or 1, where 0 represents correct row and column effects, and 1 represents correct triple effects."
@@ -62,6 +67,17 @@ class DataSet(object):
         if self.mod == 1:
             self.label_batch = self.data.obs['batch'].cat.codes.to_numpy()
         self.sum_num = self.data.shape[0]
+        self.control_choice = np.where(self.data.obs['control']=='negative')[0]
+        self.other_choice = np.where(self.data.obs['control']!='negative')[0]
+        
+        self.dict_1 = {}
+        self.dict_2 = {}
+    
+        self.cache_0 = []
+        self.cache_1 = []
+        self.cache_2 = []
+        self.cache_3 = []
+        self.cache_4 = []
       
     def train(self):
         self.input = np.random.choice(self.data.shape[0], self.data.shape[0],
@@ -98,10 +114,47 @@ class DataSet(object):
         self.positive = np.arange(self.sum_num, dtype=int)
         self.negative = np.zeros(self.sum_num, dtype=int)
         for i in range(self.sum_num):
-            positive_choice = np.where(self.data.obsp['matrix'][i,:] >0 )[0]
-            self.positive[i]=np.random.choice(positive_choice)
-            negative_choice = np.where(self.data.obsp['matrix'][i,:] ==0)[0]
-            self.negative[i] = np.random.choice(negative_choice)
+            if self.data.obs['control'][i]=='negative': 
+                self.positive[i]=np.random.choice(self.control_choice)
+                if len(self.cache_1)!=self.sum_num:
+                    negative_choice = np.where(self.data.obsp['matrix'][i,:] ==0)[0]
+                    final_choice = np.intersect1d(negative_choice, self.other_choice)
+                    if final_choice.shape[0]==0:
+                        final_choice = negative_choice
+                    self.dict_1[i] = len(self.cache_1)
+                    self.cache_1.append(final_choice)
+                    self.negative[i] = np.random.choice(final_choice)
+                else:
+                    self.negative[i] = np.random.choice(self.cache_1[self.dict_1[i]])
+            else:
+                if len(self.cache_2)!=self.sum_num:
+                    positive_choice = np.where(self.data.obsp['matrix'][i,:] ==3 )[0]
+                    if positive_choice.shape[0]==0:
+                        positive_choice = np.where(self.data.obsp['matrix'][i,:] ==2 )[0]
+                        if positive_choice.shape[0]==0:
+                            positive_choice = np.where(self.data.obsp['matrix'][i,:] ==1 )[0]
+                    self.dict_2[i] = len(self.cache_2)
+                    self.cache_2.append(positive_choice)
+                if len(self.cache_3)!=self.sum_num:
+                    positive_choice = np.where(self.data.obsp['matrix'][i,:] ==2 )[0]
+                    if positive_choice.shape[0]==0:
+                        positive_choice = np.where(self.data.obsp['matrix'][i,:] ==1 )[0]
+                    self.cache_3.append(positive_choice)
+                if random.random()>self.p:
+                    self.positive[i]=np.random.choice(self.cache_2[self.dict_2[i]])
+                else: 
+                    self.positive[i]=np.random.choice(self.cache_3[self.dict_2[i]])
+
+                if len(self.cache_4)!=self.sum_num:
+                    negative_choice = np.where(self.data.obsp['matrix'][i,:] ==0)[0]
+                    final_choice = np.intersect1d(negative_choice, self.control_choice)
+                    if final_choice.shape[0]==0:
+                        final_choice = negative_choice
+                    self.cache_4.append(final_choice)
+                    self.negative[i] = np.random.choice(final_choice)
+                else:
+                    self.negative[i] = np.random.choice(self.cache_4[self.dict_2[i]])    
+                    
        
     def eval(self,input_data,batch_size=256):
         start = 0
