@@ -46,6 +46,7 @@ cd deepcell_release
 pip install tensorflow==2.8.1
 pip install tensorflow_addons==0.16.1
 pip install spektral==1.0.4
+pip install deepcell-tracking~=0.6.1
 python setup.py install
 pip install deepcell_toolbox==0.12.1
 ```
