@@ -41,6 +41,8 @@ pip install -e .
 
 Download the environment packages required for the pre-trained model (Optional). You can also install the required dependencies for the pre-trained model by following [https://github.com/vanvalenlab/intro-to-deepcell].
 
+The source code of experiments for cpDistiller is available at [source code](https://github.com/BioX-NKU/cpDistiller_source), including more detailed source code for cpDistiller.
+
 ```bash
 cd deepcell_release
 pip install tensorflow==2.8.1
