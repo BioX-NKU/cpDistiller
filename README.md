@@ -15,7 +15,7 @@ The `cpDistiller` package can be installed via conda using the following steps:
 Download the package from Github and install it locally.
 
 ```bash
-git clone https://github.com/Cell-Painting/cpDistiller
+git clone https://github.com/BioX-NKU/cpDistiller
 cd cpDistiller
 ```
 
@@ -83,20 +83,10 @@ You can utilize the following parameters to customize the processing pathway for
 More details could be found in [#feature extraction](https://cpdistiller.readthedocs.io/en/latest/Tutorial/index.html#feature-extraction-with-cpdistiller). 
 
 ### 2.2 Data source of cpDistiller-extractor-based features
-As a complement to the extraction procedure described above, the pre-extracted cpDistiller-extractor-based features are also available for direct access via the following link:
-[Batch1](https://drive.google.com/file/d/1HCs8UcOaUoB3z7GTM7_KeUAlDIej0YWa/view?usp=sharing),
-[Batch2](https://drive.google.com/file/d/1brAGu3IfkttxuIRBqD-3BiMC4FJ-lmrE/view?usp=sharing),
-[Batch3](https://drive.google.com/file/d/1JwpfwmuXyuks3dXKbDLj15YY_UKNDk-F/view?usp=sharing),
-[Batch4](https://drive.google.com/file/d/1buvQGhU1hTu6k12k4lWW9JoJpu-z-HCR/view?usp=sharing),
-[Batch5](https://drive.google.com/file/d/1suR-OSWAR7UD-w1PO43omm4moSqMXpcw/view?usp=sharing),
-[Batch6](https://drive.google.com/file/d/1P9AsowrdVHJT8P6kMQjwXbR2EUyZQlId/view?usp=sharing),
-[Batch7](https://drive.google.com/file/d/11EbsH2l9dq-O7IgBLsFVKzMEsfwpz2Ig/view?usp=sharing),
-[Batch8](https://drive.google.com/file/d/1SWVhi2rI968WEU0v38aOrydZfF-mFKSy/view?usp=sharing),
-[Batch9](https://drive.google.com/file/d/1SoyuRmU0O2Htu8HGyhOgz7OLgKv6_vgZ/view?usp=sharing),
-[Batch10](https://drive.google.com/file/d/1PcopZwWw6fJVry5gY9SwpLDG7zzu04eA/view?usp=sharing),
-[Batch11](https://drive.google.com/file/d/1QvfZZ2xu-12hSN062trvvxCVTikzX14m/view?usp=sharing),
-[Batch13](https://drive.google.com/file/d/1uzAt8-B9xc9rxohofrYW9ske2pArYvJa/view?usp=sharing),
+As a complement to the extraction procedure described above, the pre-extracted cpDistiller-extractor-based features are also available for direct access via the following link::
+[Batch list](https://drive.google.com/drive/folders/14AFCz1QVXhZfzLSLQNRFbxq-McTFY5le)
 
+Note: The currently released features are the pooled results used by cpDistiller. The original Mesmer-extracted features (11,664 dimensions) are large and will undergo reorganization and quality control before public release. We will make them available once this curation process is finished.
 
 ### 3. Data preprocessing
 * Before data preprocessing, you should load **feature matrix** of Cell Painting images, utilizing both CellProfiler software and the extractor module of cpDistiller. 
